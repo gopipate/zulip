@@ -1067,3 +1067,56 @@ class UserGroupAPITestCase(UserGroupTestCase):
             ).content
         )
         self.assertCountEqual(result_dict["subgroups"], [admins_group.id])
+
+    def test_user_in_group_notifiable_unit(self):
+        realm = get_realm("zulip")
+        shiva = self.example_user("shiva")
+
+        moderators_group = UserGroup.objects.get(
+            name=UserGroup.MODERATORS_GROUP_NAME, realm=realm, is_system_group=True
+        )
+        # shiva is in group
+        self.assertTrue(is_user_in_group(moderators_group, shiva))
+
+        user_id = shiva.id
+        acting_user_id = self.example_user("cordelia").id
+        user_data = self.create_user_notifications_data_object(
+            user_id=user_id, pm_push_notify=True)
+        self.assertTrue(user_data.is_notifiable(
+            acting_user_id=acting_user_id, idle=True))
+
+    def test_notify_user_when_added_to_group_unit(self):
+        realm = get_realm("zulip")
+        recipient_user = self.example_user("shiva")
+        acting_user = self.example_user("cordelia")
+
+        shiva_only = create_user_group("shiva_only", [recipient_user], realm)
+
+        send_messages_for_new_members(
+            acting_user=acting_user, recipient_users=[
+                recipient_user], user_group_name=shiva_only
+        )
+
+    def test_for_correct_notifiation(self):
+        realm = get_realm("zulip")
+        recipient_user = self.example_user("shiva")
+        acting_user = self.example_user("cordelia")
+
+        shiva_and_cordelia = create_user_group(
+            "shiva_and_cordelia", [acting_user, recipient_user], realm)
+        mention_backend = MentionBackend(realm.id)
+
+        result = get_user_group_mentions_data(
+            mentioned_user_ids={recipient_user.id},
+            mentioned_user_group_ids=[shiva_and_cordelia.id],
+            mention_data=MentionData(
+                mention_backend, "cordelia subscribed you to the group shiva_only."),
+        )
+
+        self.assertDictEqual(
+            result,
+            {
+                recipient_user.id: shiva_and_cordelia.id,
+                acting_user.id: shiva_and_cordelia.id,
+            },
+        )
